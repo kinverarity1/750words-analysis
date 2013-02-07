@@ -1,3 +1,22 @@
+'''Functions for reading and analysing exported data from 750words.com
+
+Currently the only source of data is a collection of monthly export files
+from the website::
+
+    >>> text, entries = read_local_750words(r'C:\Users\Fred\Downloads')
+
+Direct download via HTTPS will be included soon.
+
+Statistics are then calculated from the *entries* list via three classes::
+
+    >>> s750 = stats_750(entries)       # Streaks, etc.
+    >>> all = stats(text)               # Text statistics on all your writing
+    >>> estats = entrystats(entries)    # Text statistics per entry
+
+Use ``print`` to explore the results of these classes, and take a look at their
+docstrings and methods.
+
+'''
 from __future__ import division
 
 from collections import defaultdict
@@ -37,6 +56,248 @@ substitutions = {"it's": 'it is'}
 ratios = [('The', 'The', ('The', 'the')),
           ('I', 'I', ('I', 'i')),
           ('OK', 'OK', ('OK', 'ok', 'okay', 'Okay', 'okies'))]
+
+
+
+def read_local_750words(path):
+    '''Read 750 words entries from local download files.
+
+    Returns: *clean_md, entries*
+        - *clean_md*: cleaned Markdown file of all entries.
+        - *entries*: a list of dictionaries for each entry
+
+    '''
+    rawtext = ''
+    for fn in find_export_files(path):
+        with open(fn, mode='r') as f:
+            rawtext += f.read()
+    return parse_markdown(rawtext)
+
+
+
+class stats_750(dict):
+    '''Performance in the context of the 750 words website.
+
+    Args:
+        - *entries*: a list of dictionaries for each entry (see other functions)
+
+    Attributes: 
+        - Lists of values for each entry:
+            - *dates*: datetime objects
+            - *nwords*: number of words per entry
+            - *successes*: bool: whether you made 750 words
+            - *consecs*: bool: did you write the day before?
+        - *streaks*: a list of (*days*, *first_day*, *last_day*) for each
+          streak, where *first_day* and *last_day* are datetime objects
+
+    Methods:
+        - *plot_entry_lengths*
+        - *plot_history*
+
+    '''
+    def __init__(self, entries, verbose=0):
+        self.__dict__ = self
+        self.entries = entries
+        self.dates = [e['date'] for e in entries]
+        self.nwords = [count_words(e['text']) for e in entries]
+        self.successes = [True if n > 750 else False for n in self.nwords]
+        
+        streaks = []
+        consecs = []
+        streak = 0
+        start = self.dates[0]
+        for i, reached_750 in enumerate(self.successes):
+            consecutive = 0
+            if i > 0:
+                consecutive = 1
+                if self.dates[i] - self.dates[i - 1] != datetime.timedelta(hours=24):
+                    consecutive = 0
+            consecs.append(consecutive)
+            
+            # you can't have a streak if this entry's date does not follow on from the previous date
+            if not consecutive:
+                if streak > 0:
+                    streaks.append([streak, start, self.dates[i - 1]])
+                streak = 0
+            
+            # if you reached 750 words and aren't on a streak, you have started one
+            if reached_750 and streak == 0:
+                start = self.dates[i]
+            
+            # no streak yet, and you reached 750 words
+            if not streak and reached_750:
+                streak += 1
+                continue
+                
+            # there is a streak, and you reached 750 words, and you didn't skip a day
+            if streak and reached_750 and consecutive:
+                streak += 1
+                continue
+                
+            # there is a streak, and you failed to reach 750 OR you skipped a day
+            if streak and (not reached_750 or not consecutive):
+                streaks.append([streak, start, self.dates[i - 1]])
+                streak = 0
+                continue
+        
+        # you are on a streak as of the last day
+        if streak > 0:
+            streaks.append([streak, start, self.dates[-1]])
+            
+        self.streaks = streaks
+        self.consecs = consecs
+        
+    def plot_entry_lengths(self, **kwargs):
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError:
+            raise ImportError('Plotting requires matplotlib')
+        kws = dict(bins=9, histtype='step', hatch='\\', )
+        kws.update(kwargs)
+        ax = plt.figure().add_subplot(111)
+        n, bins, patches = ax.hist(self.nwords, **kws)
+        ax.axvline(750, color='r', )
+        ax.set_ylim(0, 10)
+        ax.set_xlim(min(self.nwords), max(self.nwords))
+        ax.set_ylabel('No. entries')
+        ax.set_xlabel('No. words')
+       
+    def plot_history(self, datefmt='%b\'%y', **kwargs):
+        try:
+            import matplotlib.pyplot as plt
+            from matplotlib.dates import DateFormatter
+        except ImportError:
+            raise ImportError('Plotting requires matplotlib')
+        kws = dict(marker='o', mfc='c', mec='b', ms=7, )
+        kws.update(kwargs)
+        ax = plt.figure(figsize=(13, 4)).add_subplot(111)
+        ax.plot_date(self.dates, self.nwords, **kws)
+        ax.xaxis.set_major_formatter(DateFormatter(datefmt))
+        labs = plt.setp(ax.get_xticklabels(), rotation=0, ha='left')
+        
+    def __str__(self):
+        st = []
+        s = []
+        s.append('Number of entries: %d' % len(self.entries))
+        for ndays, start, end in sorted(self.streaks, reverse=True, ):
+            st.append('%d (%s' % (ndays, start.strftime('%d/%m/%y')))
+            if end - start >= datetime.timedelta(hours=24):
+                st[-1] += ' - %s)' % end.strftime('%d/%m/%y')
+            else:
+                st[-1] += ')'
+            st[-1] = re.sub('(?P<prefix>[^0-9])0', r'\g<prefix>', st[-1]) # Convert 05/06/12 to 5/6/12
+        s.append('Streaks > 1 day: ' + ', '.join((sti for sti in st if int(sti.split()[0]) > 1)))
+        return '\n'.join(s)
+
+
+
+class stats(dict):
+    '''Calculate text statistics. Subclass of dict.
+
+    Args:
+        - *text*: string
+        - *clean_func*: function to pass *text* through first. Set to None
+          to use *text* directly.
+
+    Methods:
+        - *ratio*
+
+    '''
+    def __init__(self, text, clean_func='auto'):
+        self.__dict__ = self
+        self._attrs = ['text', 'words', 'word_lengths', 'success', 'freqdict',
+                       'wordfreqpairs']
+        if clean_func is None:
+            clean_func = lambda x: x
+        elif clean_func == 'auto':
+            clean_func = clean_for_stats
+        text = clean_func(text)
+
+        self.text = text
+        self.words = count_words(text)
+        self.word_lengths = [len(w) for w in text.split() if '://' not in w] # remove hyperlinks
+        self.success = True if self.words >= 750 else False
+        self.freqdict = freqdict(text)
+        self.wordfreqpairs = wordfreqpairs(self.freqdict)
+
+        for label, word, words in ratios:
+            try:
+                assert re.match('[A-Za-z_]', label[0]) is not None
+            except AssertionError, IndexError:
+                print 'Skipping the invalid label "%s"' % label
+                continue
+            label += '_ratio'
+            self[label] = self.ratio(word, words)
+            self._attrs.append(label)
+
+    def ratio(self, word, words):
+        '''Return ratio of frequencies: *word* / *words*.'''
+        denominator = sum((self.freqdict[w] for w in words))
+        if denominator == 0:
+            return None
+        else:
+            return self.freqdict[word] / denominator
+       
+    def __str__(self):
+        if len(self.text) < 40:
+            hint = self.text
+        else:
+            hint = self.text[:40]
+        s = '\n'.join(('Words: %d' % self.words,
+                       'Text: "%s"...' % hint,
+                       'Most common words: ' + ', '.join(
+                           ('%s (%d)' % (word, freq) for word, freq in self.wordfreqpairs[:5]))
+                       + ', ...'
+                       ))
+        return s
+
+
+
+class entrystats(list):
+    '''Calculate statistics of a collection of entries. Subclasses list,
+    so each item is the statistics for each entry.
+
+    Args:
+        - *entries*: list of dictionaries for each entry.
+
+    Methods:
+        - *plot_word_lengths*
+
+    '''
+    def __init__(self, entries, clean_func='auto'):
+        if clean_func is None:
+            clean_func = lambda x: x
+        elif clean_func == 'auto':
+            clean_func = clean_for_stats
+        list.__init__(self, [stats(clean_func(e['text'])) for e in entries])
+    
+    def __getattr__(self, key):
+        if key in self[0]._attrs:
+            return [s[key] for s in self]
+    
+    def plot_word_lengths(self):
+        try:
+            import numpy as np
+            import matplotlib.pyplot as plt
+        except ImportError:
+            raise ImportError('Plotting requires matplotlib and numpy')
+        ax = plt.figure().add_subplot(111)
+        ax.plot([np.median(s.word_lengths) for s in self], label='median', marker='o', mfc='none', mec='k', ls='', )
+        ax.plot([np.mean(s.word_lengths) for s in self], label='mean', color='r', )
+        ax.fill_between(range(len(self)), 
+                        [np.min(s.word_lengths) for s in self],
+                        [np.max(s.word_lengths) for s in self], 
+                        label='max', alpha=0.05, color='g', )
+        ax.set_ylabel('Word length')
+        ax.set_xlabel('Entry #')
+        leg = ax.legend(loc='best', )
+        leg.get_frame().set_alpha(0.5)
+        
+    def __str__(self):
+        s = []
+        s.append('Number of entries: %d' % len(self))
+        return '\n'.join(s)
+
 
 
 def strip_pair(line):
@@ -177,21 +438,6 @@ def count_words(text):
     return len(text.split())
 
 
-def read_local_750words(path):
-    '''Read 750 words entries from local download files.
-
-    Returns: *clean_md, entries*
-        - *clean_md*: cleaned Markdown file of all entries.
-        - *entries*: a list of dictionaries for each entry
-
-    '''
-    rawtext = ''
-    for fn in find_export_files(path):
-        with open(fn, mode='r') as f:
-            rawtext += f.read()
-    return parse_markdown(rawtext)
-
-
 def remove_punctuation(
         txt, replace=((r'''~`!@#$%^&*()_-+=[]\{}|;:",./<>?''', ' '),
                       ('\n\r', ''))
@@ -231,218 +477,4 @@ def freqdict(txt):
 def wordfreqpairs(wfdict):
     '''Turns frequency dict into an ordered list of (word, freq) tuples.'''
     return sorted(wfdict.iteritems(), key=lambda x: x[1], reverse=True)
-
-
-
-class stats_750(dict):
-    '''Performance in the context of the 750 words website.
-
-    Args:
-        - *entries*: a list of dictionaries for each entry (see other functions)
-
-    Attributes: 
-        - Lists of values for each entry:
-            - *dates*: datetime objects
-            - *nwords*: number of words per entry
-            - *successes*: bool: whether you made 750 words
-            - *consecs*: bool: did you write the day before?
-        - *streaks*: a list of (*days*, *first_day*, *last_day*) for each
-          streak, where *first_day* and *last_day* are datetime objects
-
-    Methods:
-        - *plot_entry_lengths*
-        - *plot_history*
-
-    '''
-    def __init__(self, entries, verbose=0):
-        self.__dict__ = self
-        self.entries = entries
-        self.dates = [e['date'] for e in entries]
-        self.nwords = [count_words(e['text']) for e in entries]
-        self.successes = [True if n > 750 else False for n in self.nwords]
-        
-        streaks = []
-        consecs = []
-        streak = 0
-        start = self.dates[0]
-        for i, reached_750 in enumerate(self.successes):
-            consecutive = 0
-            if i > 0:
-                consecutive = 1
-                if self.dates[i] - self.dates[i - 1] != datetime.timedelta(hours=24):
-                    consecutive = 0
-            consecs.append(consecutive)
-            
-            # you can't have a streak if this entry's date does not follow on from the previous date
-            if not consecutive:
-                if streak > 0:
-                    streaks.append([streak, start, self.dates[i - 1]])
-                streak = 0
-            
-            # if you reached 750 words and aren't on a streak, you have started one
-            if reached_750 and streak == 0:
-                start = self.dates[i]
-            
-            # no streak yet, and you reached 750 words
-            if not streak and reached_750:
-                streak += 1
-                continue
-                
-            # there is a streak, and you reached 750 words, and you didn't skip a day
-            if streak and reached_750 and consecutive:
-                streak += 1
-                continue
-                
-            # there is a streak, and you failed to reach 750 OR you skipped a day
-            if streak and (not reached_750 or not consecutive):
-                streaks.append([streak, start, self.dates[i - 1]])
-                streak = 0
-                continue
-        
-        # you are on a streak as of the last day
-        if streak > 0:
-            streaks.append([streak, start, self.dates[-1]])
-            
-        self.streaks = streaks
-        self.consecs = consecs
-        
-    def plot_entry_lengths(self, **kwargs):
-        try:
-            import matplotlib.pyplot as plt
-        except ImportError:
-            raise ImportError('Plotting requires matplotlib')
-        kws = dict(bins=9, histtype='step', hatch='\\', )
-        kws.update(kwargs)
-        ax = plt.figure().add_subplot(111)
-        n, bins, patches = ax.hist(self.nwords, **kws)
-        ax.axvline(750, color='r', )
-        ax.set_ylim(0, 10)
-        ax.set_xlim(min(self.nwords), max(self.nwords))
-        ax.set_ylabel('No. entries')
-        ax.set_xlabel('No. words')
-       
-    def plot_history(self, datefmt='%b\'%y', **kwargs):
-        try:
-            import matplotlib.pyplot as plt
-            from matplotlib.dates import DateFormatter
-        except ImportError:
-            raise ImportError('Plotting requires matplotlib')
-        kws = dict(marker='o', mfc='c', mec='b', ms=7, )
-        kws.update(kwargs)
-        ax = plt.figure(figsize=(13, 4)).add_subplot(111)
-        ax.plot_date(self.dates, self.nwords, **kws)
-        ax.xaxis.set_major_formatter(DateFormatter(datefmt))
-        labs = plt.setp(ax.get_xticklabels(), rotation=0, ha='left')
-        
-    def __str__(self):
-        st = []
-        s = []
-        s.append('Number of entries: %d' % len(self.entries))
-        for ndays, start, end in sorted(self.streaks, reverse=True, ):
-            st.append('%d (%s' % (ndays, start.strftime('%d/%m/%y')))
-            if end - start >= datetime.timedelta(hours=24):
-                st[-1] += ' - %s)' % end.strftime('%d/%m/%y')
-            else:
-                st[-1] += ')'
-            st[-1] = re.sub('(?P<prefix>[^0-9])0', r'\g<prefix>', st[-1]) # Convert 05/06/12 to 5/6/12
-        s.append('Streaks > 1 day: ' + ', '.join((sti for sti in st if int(sti.split()[0]) > 1)))
-        return '\n'.join(s)
-
-
-
-class stats(dict):
-    '''Calculate text statistics. Subclass of dict.
-
-    Args:
-        - *text*: string
-
-    Methods:
-        - *ratio*
-
-    '''
-    def __init__(self, text):
-        self.__dict__ = self
-        self._attrs = ['text', 'words', 'word_lengths', 'success', 'freqdict',
-                       'wordfreqpairs']
-
-        self.text = text
-        self.words = count_words(text)
-        self.word_lengths = [len(w) for w in text.split() if '://' not in w] # remove hyperlinks
-        self.success = True if self.words >= 750 else False
-        self.freqdict = freqdict(text)
-        self.wordfreqpairs = wordfreqpairs(self.freqdict)
-
-        for label, word, words in ratios:
-            try:
-                assert re.match('[A-Za-z_]', label[0]) is not None
-            except AssertionError, IndexError:
-                print 'Skipping the invalid label "%s"' % label
-                continue
-            label += '_ratio'
-            self[label] = self.ratio(word, words)
-            self._attrs.append(label)
-
-    def ratio(self, word, words):
-        '''Return ratio of frequencies: *word* / *words*.'''
-        denominator = sum((self.freqdict[w] for w in words))
-        if denominator == 0:
-            return None
-        else:
-            return self.freqdict[word] / denominator
-       
-    def __str__(self):
-        if len(self.text) < 40:
-            hint = self.text
-        else:
-            hint = self.text[:40]
-        s = '\n'.join(('Words: %d' % self.words,
-                       'Text: "%s"...' % hint,
-                       'Most common words: ' + ', '.join(
-                           ('%s (%d)' % (word, freq) for word, freq in self.wordfreqpairs[:5]))
-                       + ', ...'
-                       ))
-        return s
-
-
-
-class entrystats(list):
-    '''Calculate statistics of a collection of entries. Subclasses list,
-    so each item is the statistics for each entry.
-
-    Args:
-        - *entries*: list of dictionaries for each entry.
-
-    Methods:
-        - *plot_word_lengths*
-
-    '''
-    def __init__(self, entries, clean_func=clean_for_stats):
-        list.__init__(self, [stats(clean_func(e['text'])) for e in entries])
-    
-    def __getattr__(self, key):
-        if key in self[0]._attrs:
-            return [s[key] for s in self]
-    
-    def plot_word_lengths(self):
-        try:
-            import numpy as np
-            import matplotlib.pyplot as plt
-        except ImportError:
-            raise ImportError('Plotting requires matplotlib and numpy')
-        ax = plt.figure().add_subplot(111)
-        ax.plot([np.median(s.word_lengths) for s in self], label='median', marker='o', mfc='none', mec='k', ls='', )
-        ax.plot([np.mean(s.word_lengths) for s in self], label='mean', color='r', )
-        ax.fill_between(range(len(self)), 
-                        [np.min(s.word_lengths) for s in self],
-                        [np.max(s.word_lengths) for s in self], 
-                        label='max', alpha=0.05, color='g', )
-        ax.set_ylabel('Word length')
-        ax.set_xlabel('Entry #')
-        leg = ax.legend(loc='best', )
-        leg.get_frame().set_alpha(0.5)
-        
-    def __str__(self):
-        s = []
-        s.append('Number of entries: %d' % len(self))
-        return '\n'.join(s)
 
