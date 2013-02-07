@@ -39,10 +39,6 @@ except ImportError:
     print 'Note: plotting functions require matplotlib'
 
 
-months = dict(zip(['NOTHING', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul',
-                   'aug', 'sep', 'oct', 'nov', 'dec'], range(13)))
-months_inv = dict([[v, k] for k, v in months.items()])
-
 DEFAULT_PATH = os.path.normpath(os.path.expanduser('~/Downloads'))
 
 # Don't want to measure contractions like etc. vs et cetera, etc.?
@@ -87,17 +83,19 @@ def read_local_750words(path=DEFAULT_PATH):
 
 
 def download_750words(user=None, password=None, savetodisk='auto',
-                      path=DEFAULT_PATH):
+                      path=DEFAULT_PATH, current=True):
     '''Download 750 words entries from 750words.com
 
     Args:
         - *user*: username (email address)
         - *password*: password
         - *savetodisk*: save downloaded files to disk? The default setting 'auto'
-          saves them to *path*. Since content likely once changes once or
-          twice a day, this is to reduce unnecessary load on 750words.com
-          servers. Please don't run this function all the time.
+          saves them to *path*.
         - *path*: path to download export files to.
+        - *current*: download only the current month's content. This is set to 
+          True by default because you should only need to have this ``False`` to
+          download all data ONCE, given the inability to change old content on
+          750words.com -- please be easy on Buster's servers! :-)
 
     Returns: *clean_md, entries*
         - *clean_md*: cleaned Markdown file of all entries.
@@ -115,35 +113,30 @@ def download_750words(user=None, password=None, savetodisk='auto',
     r = session.post('https://750words.com/auth/signin', data={
                             'person[email_address]': user,
                             'person[password]': password})
-    r = session.get('https://750words.com/statistics/2000/01')
-    month_page = pq(r.text)
 
-    urls = []
-    for e in month_page('td').find('a'):
-        e = pq(e)
-        if e.attr.href.startswith('/export'):
-            url = 'https://750words.com' + e.attr.href
-            if url not in urls:
-                urls.append(url)
+    if current:
+        today = datetime.datetime.now()
+        year = today.year
+        month = today.month
+        r = session.get('https://750words.com/export/%s/%s' % (year, month))
+        write_file(r.text, year, month, path)
+        return read_local_750words(path)
+    else:
+        urls = get_all_urls(session)
+        months = []
+        N = len(urls)
+        for n, url in enumerate(urls):
+            print 'Downloading %s... [%d of %d]' % (e.attr.href, n + 1, N)
+            year, month = map(int, url.split('/')[-2:])
+            text = session.get(url).text
+            write_file(text, year, month, path)
+            months.append([year, month, text])
+            time.sleep(10)       # 10 seconds between export requests
 
-    months = []
-    N = len(urls)
-    for n, url in enumerate(urls):
-        print 'Downloading %s... [%d of %d]' % (e.attr.href, n + 1, N)
-        year, month = map(int, url.split('/')[-2:])
-        text = session.get(url).text
-        fn = '750 Words-export-%s-%02.0f.txt' % (months_inv[month], year)
-        full_fn = os.path.join(path, fn)
-        print '  saving to %s...' % full_fn
-        with codecs.open(full_fn, mode='w', encoding='utf-8') as f:
-            f.write(text)
-        months.append([year, month, text])
-        time.sleep(10)       # 10 seconds between export requests
-
-    all_text = ''
-    for year, month, text in months:
-        all_text += text + '\n \n'
-    return parse_markdown(all_text)
+        all_text = ''
+        for year, month, text in months:
+            all_text += text + '\n \n'
+        return parse_markdown(all_text)
 
 
 
@@ -287,7 +280,7 @@ class stats(dict):
 
         self.text = text
         self.words = count_words(text)
-        self.word_lengths = [len(w) for w in text.split() if '://' not in w] # remove hyperlinks
+        self.word_lengths = [len(w) for w in text.split()]
         self.success = True if self.words >= 750 else False
         self.freqdict = freqdict(text)
         self.wordfreqpairs = wordfreqpairs(self.freqdict)
@@ -370,6 +363,14 @@ class entrystats(list):
         s.append('Number of entries: %d' % len(self))
         return '\n'.join(s)
 
+
+
+months = dict(zip(['NOTHING', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul',
+                   'aug', 'sep', 'oct', 'nov', 'dec'], range(13)))
+
+months_inv = dict([[v, k] for k, v in months.items()])
+
+url_re = re.compile(r'''(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'".,<>?]))''')
 
 
 def strip_pair(line):
@@ -504,6 +505,29 @@ def find_export_files(path):
     return sorted(fns1, key=get_yeardate)
 
 
+def get_all_urls(session):
+    '''Get all URLs you've written in.'''
+    r = session.get('https://750words.com/statistics/2000/01')
+    month_page = pq(r.text)
+
+    urls = []
+    for e in month_page('td').find('a'):
+        e = pq(e)
+        if e.attr.href.startswith('/export'):
+            url = 'https://750words.com' + e.attr.href
+            if url not in urls:
+                urls.append(url)
+    return urls
+
+
+def write_file(text, year, month, path):
+    fn = '750 Words-export-%s-%02.0f.txt' % (months_inv[month], year)
+    full_fn = os.path.join(path, fn)
+    print '  saving to %s...' % full_fn
+    with codecs.open(full_fn, mode='w', encoding='utf-8') as f:
+        f.write(text)
+
+
 def count_words(text):
     '''Return number of word forms (split by whitespace).'''
     return len(text.split())
@@ -530,6 +554,7 @@ def apply_substitutions(txt, substs=substitutions):
 
 def clean_for_stats(text):
     '''Wrapper function to clean text for stats calculation.'''
+    text = url_re.sub(' ', text) # Remove hyperlinks
     return apply_substitutions(remove_punctuation(text))
 
 
