@@ -1,11 +1,17 @@
 '''Functions for reading and analysing exported data from 750words.com
 
-Currently the only source of data is a collection of monthly export files
-from the website::
+To read data from your downloads folder (DEFAULT_PATH set in this file)::
 
     >>> text, entries = read_local_750words(r'C:\Users\Fred\Downloads')
 
-Direct download via HTTPS will be included soon.
+Or to download directly from 750words.com::
+
+    >>> text, entries = download_750words(user='YOUR-EMAIL',
+                                          password='YOUR-PASSWORD')
+
+the latter method will, by default, save the exported data to disk (DEFAULT_PATH),
+to avoid unnecessary over-use of the 750words servers. Please don't abuse it; 
+use ``read_local_750words()`` whenever possible.
 
 Statistics are then calculated from the *entries* list via three classes::
 
@@ -20,10 +26,12 @@ docstrings and methods.
 from __future__ import division
 
 from collections import defaultdict
+import codecs
 import datetime
 import glob
 import os
 import re
+import time
 
 try:
     import matplotlib.pyplot as plt
@@ -33,6 +41,9 @@ except ImportError:
 
 months = dict(zip(['NOTHING', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul',
                    'aug', 'sep', 'oct', 'nov', 'dec'], range(13)))
+months_inv = dict([[v, k] for k, v in months.items()])
+
+DEFAULT_PATH = os.path.normpath(os.path.expanduser('~/Downloads'))
 
 # Don't want to measure contractions like etc. vs et cetera, etc.?
 substitutions = {"it's": 'it is'}
@@ -59,7 +70,7 @@ ratios = [('The', 'The', ('The', 'the')),
 
 
 
-def read_local_750words(path):
+def read_local_750words(path=DEFAULT_PATH):
     '''Read 750 words entries from local download files.
 
     Returns: *clean_md, entries*
@@ -72,6 +83,67 @@ def read_local_750words(path):
         with open(fn, mode='r') as f:
             rawtext += f.read()
     return parse_markdown(rawtext)
+
+
+
+def download_750words(user=None, password=None, savetodisk='auto',
+                      path=DEFAULT_PATH):
+    '''Download 750 words entries from 750words.com
+
+    Args:
+        - *user*: username (email address)
+        - *password*: password
+        - *savetodisk*: save downloaded files to disk? The default setting 'auto'
+          saves them to *path*. Since content likely once changes once or
+          twice a day, this is to reduce unnecessary load on 750words.com
+          servers. Please don't run this function all the time.
+        - *path*: path to download export files to.
+
+    Returns: *clean_md, entries*
+        - *clean_md*: cleaned Markdown file of all entries.
+        - *entries*: a list of dictionaries for each entry
+
+    '''
+    try:
+        import requests
+        from pyquery import PyQuery as pq
+    except ImportError:
+        raise ImportError('Downloading data requires requests, lxml, & pyquery')
+
+    print 'Logging in to 750words.com...'
+    session = requests.Session()
+    r = session.post('https://750words.com/auth/signin', data={
+                            'person[email_address]': user,
+                            'person[password]': password})
+    r = session.get('https://750words.com/statistics/2000/01')
+    month_page = pq(r.text)
+
+    urls = []
+    for e in month_page('td').find('a'):
+        e = pq(e)
+        if e.attr.href.startswith('/export'):
+            url = 'https://750words.com' + e.attr.href
+            if url not in urls:
+                urls.append(url)
+
+    months = []
+    N = len(urls)
+    for n, url in enumerate(urls):
+        print 'Downloading %s... [%d of %d]' % (e.attr.href, n + 1, N)
+        year, month = map(int, url.split('/')[-2:])
+        text = session.get(url).text
+        fn = '750 Words-export-%s-%02.0f.txt' % (months_inv[month], year)
+        full_fn = os.path.join(path, fn)
+        print '  saving to %s...' % full_fn
+        with codecs.open(full_fn, mode='w', encoding='utf-8') as f:
+            f.write(text)
+        months.append([year, month, text])
+        time.sleep(10)       # 10 seconds between export requests
+
+    all_text = ''
+    for year, month, text in months:
+        all_text += text + '\n \n'
+    return parse_markdown(all_text)
 
 
 
@@ -406,7 +478,6 @@ def find_export_files(path):
     fns = sorted(glob.glob(os.path.join(path, '750 Words-export-*')), key=get_yeardate)
     if not len(fns):
         return []
-    months_inv = dict([v, k] for k, v in months.items())
     ym0 = get_yeardate(fns[0])
     year, month = map(int, get_yeardate(fns[0]).split('-'))
     fns1 = []
