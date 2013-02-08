@@ -115,14 +115,15 @@ def read_local_750words(path=DEFAULT_PATH):
 
 
 
-def download_750words(email=None, password=None, download='auto', current=True):
+def download_750words(email=None, password=None, download='default_path',
+                      current=True):
     '''Download 750 words entries from 750words.com
 
     Args:
         - *email*: email address (used to log in), optional
         - *password*: password, optional
-        - *download*: path to download export files to -- if None, data will not
-          be saved to disk. If 'auto', DEFAULT_PATH will be used.
+        - *download*: path to download export files to; if None or False,
+          data will not be saved to disk.
         - *current*: download only the current month's content. This is set to 
           True by default because you should only need to have this ``False`` to
           download all data ONCE, given the inability to change old content on
@@ -155,7 +156,7 @@ def download_750words(email=None, password=None, download='auto', current=True):
     if email is None and password is None:
         email, password = get_login_func()()
 
-    if download == 'auto':
+    if download == 'default_path':
         path = DEFAULT_PATH
 
     print 'Logging in to 750words.com with email=%s password=****...' % email
