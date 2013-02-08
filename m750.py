@@ -31,6 +31,7 @@ import datetime
 import glob
 import os
 import re
+import sys
 import time
 
 try:
@@ -83,7 +84,8 @@ def read_local_750words(path=DEFAULT_PATH):
 
 
 def download_750words(user=None, password=None, savetodisk='auto',
-                      path=DEFAULT_PATH, current=True):
+                      path=DEFAULT_PATH, current=True,
+                      attemptgui=True):
     '''Download 750 words entries from 750words.com
 
     Args:
@@ -96,6 +98,9 @@ def download_750words(user=None, password=None, savetodisk='auto',
           True by default because you should only need to have this ``False`` to
           download all data ONCE, given the inability to change old content on
           750words.com -- please be easy on Buster's servers! :-)
+        - *attemptgui*: whether to try getting username and password from a GUI
+          dialog instead of raw_input (motivated by use in IPython Notebooks
+          where stdin is not available and raw_input doesn't work)
 
     Returns: *clean_md, entries*
         - *clean_md*: cleaned Markdown file of all entries.
@@ -108,11 +113,29 @@ def download_750words(user=None, password=None, savetodisk='auto',
     except ImportError:
         raise ImportError('Downloading data requires requests, lxml, & pyquery')
 
-    print 'Logging in to 750words.com...'
+    def get_login_func():
+        try:
+            from PyQt4 import QtGui
+            return get_credentials_PyQt4
+        except ImportError:
+            pass
+        try:
+            import wx
+            return get_credentials_wxPython
+        except ImportError:
+            pass
+        return get_credentials_stdin
+
+    if user is None and password is None:
+        user, password = get_login_func()()
+
+    print 'Logging in to 750words.com with user=%s password=****...' % user
     session = requests.Session()
     r = session.post('https://750words.com/auth/signin', data={
                             'person[email_address]': user,
                             'person[password]': password})
+    if not 'THIS MONTH' in r.text:
+        raise AuthenticationError('Failed to log in to 750words.com')
 
     if current:
         today = datetime.datetime.now()
@@ -518,6 +541,110 @@ def get_all_urls(session):
             if url not in urls:
                 urls.append(url)
     return urls
+
+
+class AuthenticationError(Exception):
+        pass
+
+
+def get_credentials_stdin():
+    print 'Warning: your password will be echoed to the screen'
+    user = raw_input('Email: ')
+    password = raw_input('Password: ')
+    if not user or not password:
+        raise AuthenticationError('Email or password is empty')
+    return user, password
+
+
+def get_credentials_PyQt4():
+    from PyQt4 import QtGui
+
+    class Login(QtGui.QDialog):
+        def __init__(self):
+            QtGui.QDialog.__init__(self)
+            self.setWindowTitle('Authentication for 750words.com')
+            labelUser = QtGui.QLabel('  Email:')
+            labelPassword = QtGui.QLabel('Password:')
+            self.textName = QtGui.QLineEdit(self)
+            self.textPass = QtGui.QLineEdit(self)
+            self.textPass.setEchoMode(QtGui.QLineEdit.Password)
+            self.buttonLogin = QtGui.QPushButton('Log in', self)
+            self.buttonLogin.clicked.connect(self.handleLogin)
+            layout = QtGui.QVBoxLayout(self)
+            hlayout1 = QtGui.QHBoxLayout(self)
+            hlayout1.addWidget(labelUser)
+            hlayout1.addWidget(self.textName)
+            hlayout2 = QtGui.QHBoxLayout(self)
+            hlayout2.addWidget(labelPassword)
+            hlayout2.addWidget(self.textPass)
+            layout.addLayout(hlayout1)
+            layout.addLayout(hlayout2)
+            layout.addWidget(self.buttonLogin)
+            self.raise_()
+            self.activateWindow()
+
+        def handleLogin(self):
+            if (self.textName.text() != '' and
+                self.textPass.text() != ''):
+                self.accept()
+            else:
+                QtGui.QMessageBox.warning(
+                    self, 'Error', 'Email or password is empty')
+    app = QtGui.QApplication(sys.argv)
+    login = Login()
+    app.setActiveWindow(login)
+    if login.exec_() == QtGui.QDialog.Accepted:
+        user = str(login.textName.text())
+        password = str(login.textPass.text())
+        return user, password
+    else:
+        raise AuthenticationError('Log in cancelled')
+
+
+def get_credentials_wxPython():
+    import wx
+
+    class PasswordDialog(wx.Dialog):
+        def __init__(self, parent, results, id=-1, title='Authentication for 750words.com'):
+            wx.Dialog.__init__(self, parent, id, title, size=(300, 140))
+            vSizer = wx.BoxSizer(wx.VERTICAL)
+            hSizer1 = wx.BoxSizer(wx.HORIZONTAL)
+            hSizer2 = wx.BoxSizer(wx.HORIZONTAL)
+
+            email_label = wx.StaticText(self, label='Email:', size=(60, 20))
+            password_label = wx.StaticText(self, label='Password:', size=(60, 20))
+            self.email = wx.TextCtrl(self, value='', size=(200, 20))
+            self.password = wx.TextCtrl(self, value='', size=(200, 20), style=wx.TE_PASSWORD|wx.TE_PROCESS_ENTER)
+            login_button = wx.Button(self, label="Log in", id=wx.ID_OK)
+
+            hSizer1.Add(email_label, 0, wx.ALL, 8)
+            hSizer1.Add(self.email, 0, wx.ALL, 8)
+            hSizer2.Add(password_label, 0, wx.ALL, 8)
+            hSizer2.Add(self.password, 0, wx.ALL, 8)
+
+            vSizer.Add(hSizer1, 0, wx.ALL, 0)
+            vSizer.Add(hSizer2, 0, wx.ALL, 0)
+            vSizer.Add(login_button, 0, wx.ALL, 8)
+
+            self.Bind(wx.EVT_BUTTON, self.login, id=wx.ID_OK)
+            self.Bind(wx.EVT_TEXT_ENTER, self.login)
+
+            self.SetSizer(vSizer)
+            self.results = results
+
+        def login(self, event):
+            self.results['email'] = str(self.email.GetValue())
+            self.results['password'] = str(self.password.GetValue())
+            self.Destroy()
+
+    app = wx.PySimpleApp()
+    r = {}
+    dlg = PasswordDialog(None, r)
+    dlg.ShowModal()
+    if 'email' in r and 'password' in r:
+        if r['email'] and r['password']:
+            return r['email'], r['password']
+    raise AuthenticationError('Log in cancelled')
 
 
 def write_file(text, year, month, path):
