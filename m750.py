@@ -3,21 +3,22 @@
 Read data in
 ------------
 
-To read data from your downloads folder (DEFAULT_PATH set in this file)::
+To read data from your downloads folder (``DEFAULT_PATH`` set in this file)::
 
     >>> text, entries = read_local_750words()
 
-Or to download directly from 750words.com::
+Or to download directly from https://www.750words.com::
 
     >>> text, entries = download_750words()
 
-if you have PyQt4/wxPython installed a login dialog will appear, otherwise you
-can log in via a shell or pass email='...' and password='...' arguments to the
-function directly. This function will, by default, only download the current
-month's writing, and save the exported data to disk to avoid unnecessary load on
-750words.com servers. This function requires the third-party Python packages
-requests, lxml, and pyquery to be installed. How to do this depends on what
-kind of Python installation you have, and is beyond the scope of this README.
+if you have PyQt4_/wxPython_ installed a login dialog will appear, otherwise
+you can log in via a shell or pass ``email='...'`` and ``password='...'`` 
+arguments to the function directly. This function requires the third-party 
+Python packages requests_, lxml_, and pyquery_ to be installed, by 
+default, only downloads the current month's writing. It also saves the exported 
+data to disk to avoid unnecessary load on 750words.com servers. How to do this 
+depends on what kind of Python installation you have, and is beyond the scope 
+of this README.
 
 See the docstrings of these functions for more information, and please use
 ``read_local_750words()`` whenever possible.
@@ -34,6 +35,8 @@ Statistics are calculated from the *entries* list via three classes::
 Use ``print`` to explore the results of these classes, and take a look at their
 docstrings and methods. I'm going to add more stats, obviously, as I get time.
 
+Graphing methods (``plot_...``) require matplotlib_.
+
 The stats on the 750words.com website are -- and will probably continue to be --
 far better. I made this framework mainly so I could look at how whatever
 measures I can find change over time, something the 750words.com site doesn't
@@ -44,6 +47,13 @@ Copyright © 2000 nietky <nietky2@gmail.com>
 This work is free. You can redistribute it and/or modify it under the
 terms of the Do What The Fuck You Want To Public License, Version 2,
 as published by Sam Hocevar. See http://www.wtfpl.net/ for more details.
+
+.. _PyQt4: http://www.riverbankcomputing.co.uk/software/pyqt/download
+.. _wxPython: http://wxpython.org/download.php
+.. _requests: http://docs.python-requests.org/en/latest/user/install/#install
+.. _lxml: http://lxml.de/
+.. _pyquery: http://pypi.python.org/pypi/pyquery
+.. _matplotlib: http://matplotlib.org/downloads.html
 
 '''
 from __future__ import division
@@ -106,13 +116,13 @@ def read_local_750words(path=DEFAULT_PATH):
 
 
 
-def download_750words(user=None, password=None, savetodisk='auto',
+def download_750words(email=None, password=None, savetodisk='auto',
                       path=DEFAULT_PATH, current=True,
                       attemptgui=True):
     '''Download 750 words entries from 750words.com
 
     Args:
-        - *user*: username (email address)
+        - *email*: email address (used to log in)
         - *password*: password
         - *savetodisk*: save downloaded files to disk? The default setting 'auto'
           saves them to *path*.
@@ -149,13 +159,13 @@ def download_750words(user=None, password=None, savetodisk='auto',
             pass
         return get_credentials_stdin
 
-    if user is None and password is None:
-        user, password = get_login_func()()
+    if email is None and password is None:
+        email, password = get_login_func()()
 
-    print 'Logging in to 750words.com with user=%s password=****...' % user
+    print 'Logging in to 750words.com with email=%s password=****...' % email
     session = requests.Session()
     r = session.post('https://750words.com/auth/signin', data={
-                            'person[email_address]': user,
+                            'person[email_address]': email,
                             'person[password]': password})
     if not 'THIS MONTH' in r.text:
         raise AuthenticationError('Failed to log in to 750words.com')
@@ -572,11 +582,11 @@ class AuthenticationError(Exception):
 
 def get_credentials_stdin():
     print 'Warning: your password will be echoed to the screen'
-    user = raw_input('Email: ')
+    email = raw_input('Email: ')
     password = raw_input('Password: ')
-    if not user or not password:
+    if not email or not password:
         raise AuthenticationError('Email or password is empty')
-    return user, password
+    return email, password
 
 
 def get_credentials_PyQt4():
@@ -586,29 +596,29 @@ def get_credentials_PyQt4():
         def __init__(self):
             QtGui.QDialog.__init__(self)
             self.setWindowTitle('Authentication for 750words.com')
-            labelUser = QtGui.QLabel('  Email:')
-            labelPassword = QtGui.QLabel('Password:')
-            self.textName = QtGui.QLineEdit(self)
-            self.textPass = QtGui.QLineEdit(self)
-            self.textPass.setEchoMode(QtGui.QLineEdit.Password)
-            self.buttonLogin = QtGui.QPushButton('Log in', self)
-            self.buttonLogin.clicked.connect(self.handleLogin)
+            label_email = QtGui.QLabel('  Email:')
+            label_password = QtGui.QLabel('Password:')
+            self.text_email = QtGui.QLineEdit(self)
+            self.text_password = QtGui.QLineEdit(self)
+            self.text_password.setEchoMode(QtGui.QLineEdit.Password)
+            self.button_login = QtGui.QPushButton('Log in', self)
+            self.button_login.clicked.connect(self.handle_login)
             layout = QtGui.QVBoxLayout(self)
             hlayout1 = QtGui.QHBoxLayout(self)
-            hlayout1.addWidget(labelUser)
-            hlayout1.addWidget(self.textName)
+            hlayout1.addWidget(label_email)
+            hlayout1.addWidget(self.text_email)
             hlayout2 = QtGui.QHBoxLayout(self)
-            hlayout2.addWidget(labelPassword)
-            hlayout2.addWidget(self.textPass)
+            hlayout2.addWidget(label_password)
+            hlayout2.addWidget(self.text_password)
             layout.addLayout(hlayout1)
             layout.addLayout(hlayout2)
-            layout.addWidget(self.buttonLogin)
+            layout.addWidget(self.button_login)
             self.raise_()
             self.activateWindow()
 
-        def handleLogin(self):
-            if (self.textName.text() != '' and
-                self.textPass.text() != ''):
+        def handle_login(self):
+            if (self.text_email.text() != '' and
+                self.text_password.text() != ''):
                 self.accept()
             else:
                 QtGui.QMessageBox.warning(
@@ -617,9 +627,9 @@ def get_credentials_PyQt4():
     login = Login()
     app.setActiveWindow(login)
     if login.exec_() == QtGui.QDialog.Accepted:
-        user = str(login.textName.text())
-        password = str(login.textPass.text())
-        return user, password
+        email = str(login.text_email.text())
+        password = str(login.text_password.text())
+        return email, password
     else:
         raise AuthenticationError('Log in cancelled')
 
