@@ -115,24 +115,18 @@ def read_local_750words(path=DEFAULT_PATH):
 
 
 
-def download_750words(email=None, password=None, savetodisk='auto',
-                      path=DEFAULT_PATH, current=True,
-                      attemptgui=True):
+def download_750words(email=None, password=None, download='auto', current=True):
     '''Download 750 words entries from 750words.com
 
     Args:
-        - *email*: email address (used to log in)
-        - *password*: password
-        - *savetodisk*: save downloaded files to disk? The default setting 'auto'
-          saves them to *path*.
-        - *path*: path to download export files to.
+        - *email*: email address (used to log in), optional
+        - *password*: password, optional
+        - *download*: path to download export files to -- if None, data will not
+          be saved to disk. If 'auto', DEFAULT_PATH will be used.
         - *current*: download only the current month's content. This is set to 
           True by default because you should only need to have this ``False`` to
           download all data ONCE, given the inability to change old content on
           750words.com -- please be easy on Buster's servers! :-)
-        - *attemptgui*: whether to try getting username and password from a GUI
-          dialog instead of raw_input (motivated by use in IPython Notebooks
-          where stdin is not available and raw_input doesn't work)
 
     Returns: *clean_md, entries*
         - *clean_md*: cleaned Markdown file of all entries.
@@ -161,6 +155,9 @@ def download_750words(email=None, password=None, savetodisk='auto',
     if email is None and password is None:
         email, password = get_login_func()()
 
+    if download == 'auto':
+        path = DEFAULT_PATH
+
     print 'Logging in to 750words.com with email=%s password=****...' % email
     session = requests.Session()
     r = session.post('https://750words.com/auth/signin', data={
@@ -174,8 +171,13 @@ def download_750words(email=None, password=None, savetodisk='auto',
         year = today.year
         month = today.month
         r = session.get('https://750words.com/export/%s/%s' % (year, month))
-        write_file(r.text, year, month, path)
-        return read_local_750words(path)
+        if download:
+            write_file(r.text, year, month, path)
+            return read_local_750words(path)
+        else:
+            print('Warning: because current=True and download=False, you have'
+                  'read in only the current month\'s writing.')
+            return parse_markdown(r.text)
     else:
         urls = get_all_urls(session)
         months = []
@@ -184,7 +186,8 @@ def download_750words(email=None, password=None, savetodisk='auto',
             print 'Downloading %s... [%d of %d]' % (e.attr.href, n + 1, N)
             year, month = map(int, url.split('/')[-2:])
             text = session.get(url).text
-            write_file(text, year, month, path)
+            if download:
+                write_file(text, year, month, path)
             months.append([year, month, text])
             time.sleep(10)       # 10 seconds between export requests
 
