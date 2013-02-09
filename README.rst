@@ -41,6 +41,13 @@ far better. I made this framework mainly so I could look at how whatever
 measures I can find change over time, something the 750words.com site doesn't
 quite do at the moment (Feb 2013).
 
+I've included hyphenation and parts-of-speech dictionaries from the `Moby Project`_
+and some functions to load these in moby.py. The stats classes will use this
+data if you use ``use_moby=True``.
+
+Other stuff
+-----------
+
 Copyright (C) 2013 nietky <nietky2@gmail.com>
 
 This work is free. You can redistribute it and/or modify it under the
@@ -53,4 +60,5 @@ as published by Sam Hocevar. See http://www.wtfpl.net/ for more details.
 .. _lxml: http://lxml.de/
 .. _pyquery: http://pypi.python.org/pypi/pyquery
 .. _matplotlib: http://matplotlib.org/downloads.html
+.. _`Moby Project`: http://icon.shef.ac.uk/Moby/
 

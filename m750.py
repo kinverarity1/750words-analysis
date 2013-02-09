@@ -41,6 +41,13 @@ far better. I made this framework mainly so I could look at how whatever
 measures I can find change over time, something the 750words.com site doesn't
 quite do at the moment (Feb 2013).
 
+I've included hyphenation and parts-of-speech dictionaries from the `Moby Project`_
+and some functions to load these in moby.py. The stats classes will use this
+data if you use ``use_moby=True``.
+
+Other stuff
+-----------
+
 Copyright (C) 2013 nietky <nietky2@gmail.com>
 
 This work is free. You can redistribute it and/or modify it under the
@@ -53,6 +60,7 @@ as published by Sam Hocevar. See http://www.wtfpl.net/ for more details.
 .. _lxml: http://lxml.de/
 .. _pyquery: http://pypi.python.org/pypi/pyquery
 .. _matplotlib: http://matplotlib.org/downloads.html
+.. _`Moby Project`: http://icon.shef.ac.uk/Moby/
 
 '''
 from __future__ import division
@@ -97,6 +105,7 @@ ratios = [('The', 'The', ('The', 'the')),
           ('I', 'I', ('I', 'i')),
           ('OK', 'OK', ('OK', 'ok', 'okay', 'Okay', 'okies'))]
 
+swearwords = ['fuck', 'shit', 'crap', 'bugger']
 
 
 def read_local_750words(path=DEFAULT_PATH):
@@ -196,7 +205,6 @@ def download_750words(email=None, password=None, download='default_path',
         for year, month, text in months:
             all_text += text + '\n \n'
         return parse_markdown(all_text)
-
 
 
 class stats_750(dict):
@@ -327,22 +335,43 @@ class stats(dict):
         - *ratio*
 
     '''
-    def __init__(self, text, clean_func='auto'):
+    def __init__(self, text, clean_func='auto', use_moby=False):
         self.__dict__ = self
         self._attrs = ['text', 'words', 'word_lengths', 'success', 'freqdict',
-                       'wordfreqpairs']
+                       'wordfreqpairs', 'swearing']
         if clean_func is None:
             clean_func = lambda x: x
         elif clean_func == 'auto':
             clean_func = clean_for_stats
         text = clean_func(text)
 
+        self.lwords = [w.lower() for w in text.split()]
         self.text = text
         self.words = count_words(text)
-        self.word_lengths = [len(w) for w in text.split()]
+        self.word_lengths = [len(w) for w in self.lwords]
         self.success = True if self.words >= 750 else False
         self.freqdict = freqdict(text)
         self.wordfreqpairs = wordfreqpairs(self.freqdict)
+        self.swearing = 0
+        for word in self.lwords:
+            for swearword in swearwords:
+                if swearword in word:
+                    self.swearing += 1
+        if use_moby:
+            import moby
+            self._attrs += ['syllable_lengths', 'pos']
+            self.syllable_lengths = [len(moby.syllables[w]) for w in 
+                                     self.lwords if w in moby.syllables]
+            poses = {}
+            for pos in moby.postypes.values():
+                poses[pos] = 0
+                for word in self.lwords:
+                    try:
+                        for wpos in moby.pos[word]:
+                            poses[wpos] += 1
+                    except KeyError:
+                        continue
+            self.pos = poses
 
         for label, word, words in ratios:
             try:
@@ -378,22 +407,18 @@ class stats(dict):
 
 
 class entrystats(list):
-    '''Calculate statistics of a collection of entries. Subclasses list,
-    so each item is the statistics for each entry.
+    '''Calculate statistics of a collection of entries/paragraphs. Subclasses list,
+    so each item is the statistics for each entry/paras.
 
     Args:
-        - *entries*: list of dictionaries for each entry.
+        - *entries*: list of dictionaries for each entry/paragraph.
 
     Methods:
         - *plot_word_lengths*
 
     '''
-    def __init__(self, entries, clean_func='auto'):
-        if clean_func is None:
-            clean_func = lambda x: x
-        elif clean_func == 'auto':
-            clean_func = clean_for_stats
-        list.__init__(self, [stats(clean_func(e['text'])) for e in entries])
+    def __init__(self, entries, **kwargs):
+        list.__init__(self, [stats(e['text'], **kwargs) for e in entries])
     
     def __getattr__(self, key):
         if key in self[0]._attrs:
@@ -421,6 +446,7 @@ class entrystats(list):
         s = []
         s.append('Number of entries: %d' % len(self))
         return '\n'.join(s)
+
 
 
 
@@ -493,6 +519,20 @@ def parse_markdown(raw_md, header_prefix='## '):
     return clean_md, entries
 
 
+def paragraphs(entries):
+    '''Convert entries to paragraphs.'''
+    allparas = []
+    for entry in entries:
+        paras = entry['text'].split('\n\n')
+        for i, para in enumerate(paras):
+            paradict = {'date': entry['date'],
+                        'para_n': i,
+                        'text': para,
+                        'n': count_words(para)}
+            allparas.append(paradict)
+    return allparas
+
+
 def parse_line_metadata(line):
     '''Parse metadata from a line.
 
@@ -522,6 +562,22 @@ def parse_line_metadata(line):
         value = None
         number = None
     return flag, key, value, number
+
+
+def metalist(key, entries):
+    '''Return two lists >= len(entries), with metadata values and numeric values, with
+    non-occurrences filled in as None.'''
+    values = []
+    numbers = []
+    for entry in entries:
+        if key in entry['metadata']:
+            for mentry in entry['metadata'][key]:
+                values.append(entry['metadata'][key][0])
+                numbers.append(entry['metadata'][key][1])
+        else:
+            values.append(None)
+            numbers.append(None)
+    return values, numbers
 
 
 def get_yeardate(fn):
