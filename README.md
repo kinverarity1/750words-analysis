@@ -13,25 +13,32 @@ packages requests, lxml, and pyquery installed, using this script:
 
 Text analysis code is in ``m750.py``.
 
-    >>> from m750 import *
-    >>> text, entries = read_local_750words() # or text, entries = download_750words()
+```python
+>>> from m750 import *
+>>> text, entries = read_local_750words() # or text, entries = download_750words()
+```
 
 Statistics are calculated from the *entries* list via three classes::
 
-    >>> s750 = stats_750(entries)       # Streaks, etc.
-    >>> all = stats(text)               # Text statistics on all your writing
-    >>> estats = entrystats(entries)    # Text statistics per entry
+```python
+>>> s750 = stats_750(entries)       # Streaks, etc.
+>>> all = stats(text)               # Text statistics on all your writing
+>>> estats = entrystats(entries)    # Text statistics per entry
+```
 
 Use ``print`` to explore the results of these classes, and take a look at their
 docstrings and methods. The graphing methods require matplotlib.
 
-![example]()
+![example](https://raw.github.com/kinverarity1/750words-analysis/master/wordcloud.png)
 *An example of a word cloud plotted using pytagcloud*
 
 You can also see some example IPython Notebooks:
 
-- 
-
+- [Analyse 750 Words content.ipynb](http://nbviewer.ipython.org/github/kinverarity1/750words-analysis/blob/master/Analyse%20750%20Words%20content.ipynb)
+- [word clouds via pytagcloud.ipynb](http://nbviewer.ipython.org/github/kinverarity1/750words-analysis/blob/master/word%20clouds%20via%20pytagcloud.ipynb)
+- [convert to daily markdown files.ipynb](http://nbviewer.ipython.org/github/kinverarity1/750words-analysis/blob/master/convert%20to%20daily%20markdown%20files.ipynb)
+- [how to do stop words list.ipynb](http://nbviewer.ipython.org/github/kinverarity1/750words-analysis/blob/master/how%20to%20do%20stop%20words%20list.ipynb)
+- [Moby](http://nbviewer.ipython.org/github/kinverarity1/750words-analysis/blob/master/Moby.ipynb)  
 The stats on the 750words.com website are -- and will probably continue to be --
 far better. I made this framework mainly so I could look at how whatever
 measures I can find change over time, something the 750words.com site doesn't
