@@ -4,6 +4,7 @@ import os
 MOBY_ROOT = 'Moby'
 HYPH_FN = os.path.join(MOBY_ROOT, 'mhyph', 'mhyph.txt')
 POS_FN = os.path.join(MOBY_ROOT, 'mpos', 'mobyposi.i')
+FREQ_FN = os.path.join(MOBY_ROOT, 'mwords', '10001fr.equ')
 
 postypes = {'N': 'noun',
             'p': 'plural',
@@ -110,5 +111,12 @@ def load_partsofspeech(posfn=POS_FN, guess_suffixes=False, debug=False):
     return posdict
 
 
+def get_by_freq(freqfn=FREQ_FN):
+    with open(freqfn, mode='r') as f:
+        flist = [fl.strip('\n').strip() for fl in f.readlines()[1:]]
+    return flist
+
+
 syllables = load_hyphenation()
 pos = load_partsofspeech()
+freq = get_by_freq()

@@ -45,15 +45,6 @@ I've included hyphenation and parts-of-speech dictionaries from the `Moby Projec
 and some functions to load these in moby.py. The stats classes will use this
 data if you use ``use_moby=True``.
 
-Other stuff
------------
-
-Copyright (C) 2013 nietky <nietky2@gmail.com>
-
-This work is free. You can redistribute it and/or modify it under the
-terms of the Do What The Fuck You Want To Public License, Version 2,
-as published by Sam Hocevar. See http://www.wtfpl.net/ for more details.
-
 .. _PyQt4: http://www.riverbankcomputing.co.uk/software/pyqt/download
 .. _wxPython: http://wxpython.org/download.php
 .. _requests: http://docs.python-requests.org/en/latest/user/install/#install
@@ -167,6 +158,8 @@ def download_750words(email=None, password=None, download='default_path',
 
     if download == 'default_path':
         path = DEFAULT_PATH
+    else:
+        path = download
 
     print 'Logging in to 750words.com with email=%s password=****...' % email
     session = requests.Session()
@@ -193,7 +186,7 @@ def download_750words(email=None, password=None, download='default_path',
         months = []
         N = len(urls)
         for n, url in enumerate(urls):
-            print 'Downloading %s... [%d of %d]' % (e.attr.href, n + 1, N)
+            print 'Downloading %s... [%d of %d]' % (url, n + 1, N)
             year, month = map(int, url.split('/')[-2:])
             text = session.get(url).text
             if download:
@@ -300,11 +293,12 @@ class stats_750(dict):
             from matplotlib.dates import DateFormatter
         except ImportError:
             raise ImportError('Plotting requires matplotlib')
-        kws = dict(marker='o', mfc='c', mec='b', ms=7, )
+        kws = dict(marker='o', mfc='c', mec='b', ms=8, )
         kws.update(kwargs)
         ax = plt.figure(figsize=(13, 4)).add_subplot(111)
         ax.plot_date(self.dates, self.nwords, **kws)
         ax.xaxis.set_major_formatter(DateFormatter(datefmt))
+        ax.axhline(750, color='r', )
         labs = plt.setp(ax.get_xticklabels(), rotation=0, ha='left')
         
     def __str__(self):
@@ -335,8 +329,15 @@ class stats(dict):
         - *ratio*
 
     '''
-    def __init__(self, text, clean_func='auto', use_moby=False):
+    def __init__(self, text, clean_func='auto', use_moby=True, 
+                 stop_at=100, stopfn='stopwords_mit.txt', stops=None, wordfunc=None,
+                 metadata=None):
         self.__dict__ = self
+        if metadata is None:
+            metadata = {}
+        self.metadata = metadata
+        if wordfunc is None:
+            wordfunc = lambda x: x
         self._attrs = ['text', 'words', 'word_lengths', 'success', 'freqdict',
                        'wordfreqpairs', 'swearing']
         if clean_func is None:
@@ -350,7 +351,7 @@ class stats(dict):
         self.words = count_words(text)
         self.word_lengths = [len(w) for w in self.lwords]
         self.success = True if self.words >= 750 else False
-        self.freqdict = freqdict(text)
+        self.freqdict = freqdict(text, wordfunc=wordfunc)
         self.wordfreqpairs = wordfreqpairs(self.freqdict)
         self.swearing = 0
         for word in self.lwords:
@@ -359,7 +360,8 @@ class stats(dict):
                     self.swearing += 1
         if use_moby:
             import moby
-            self._attrs += ['syllable_lengths', 'pos']
+            self._attrs += ['syllable_lengths', 'pos',
+                            'freqdict2', 'wordfreqpairs2']
             self.syllable_lengths = [len(moby.syllables[w]) for w in 
                                      self.lwords if w in moby.syllables]
             poses = {}
@@ -372,6 +374,31 @@ class stats(dict):
                     except KeyError:
                         continue
             self.pos = poses
+            self.freqdict2 = self.freqdict.copy()
+
+        def open_wordlist(fn):
+            with open(fn, mode='r') as f:
+                words = [line.strip('\n').strip() for line in f.readlines()]
+            return words
+
+        if not stops:
+            if stopfn == 'moby':
+                import moby
+                stops = moby.freq
+            elif stopfn:
+                try:
+                    stops = open_wordlist(stopfn)
+                except:
+                    pass
+        if stop_at > len(stops):
+            stop_at = None
+        else:
+            stop_at = int(stop_at)
+        for word in stops[:stop_at]:
+            word = wordfunc(word)
+            if word in self.freqdict2:
+                del self.freqdict2[word]
+        self.wordfreqpairs2 = wordfreqpairs(self.freqdict2)
 
         for label, word, words in ratios:
             try:
@@ -418,7 +445,7 @@ class entrystats(list):
 
     '''
     def __init__(self, entries, **kwargs):
-        list.__init__(self, [stats(e['text'], **kwargs) for e in entries])
+        list.__init__(self, [stats(e['text'], metadata=e, **kwargs) for e in entries])
     
     def __getattr__(self, key):
         if key in self[0]._attrs:
@@ -622,6 +649,10 @@ def find_export_files(path):
 
 def get_all_urls(session):
     '''Get all URLs you've written in.'''
+    try:
+        from pyquery import PyQuery as pq
+    except ImportError:
+        raise ImportError('Downloading data requires pyquery')
     r = session.get('https://750words.com/statistics/2000/01')
     month_page = pq(r.text)
 
@@ -777,15 +808,17 @@ def clean_for_stats(text):
     return apply_substitutions(remove_punctuation(text))
 
 
-def freqdict(txt):
+def freqdict(txt, wordfunc=None):
     '''Calculation word form frequency in *txt*.
 
     Returns a dictionary.
 
     '''
     wdict = defaultdict(int)
+    if wordfunc is None:
+        wordfunc = lambda x: x
     for word in txt.split():
-        wdict[word] += 1
+        wdict[wordfunc(word)] += 1
     return wdict
 
 
@@ -793,3 +826,8 @@ def wordfreqpairs(wfdict):
     '''Turns frequency dict into an ordered list of (word, freq) tuples.'''
     return sorted(wfdict.iteritems(), key=lambda x: x[1], reverse=True)
 
+
+def wordle(fdict):
+    pass
+    
+    
