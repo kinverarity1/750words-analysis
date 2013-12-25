@@ -1,3 +1,4 @@
 *pyc
-Analyse*ipynb
+.ipynb_checkpoints
+temp.txt
 make_readme.py
