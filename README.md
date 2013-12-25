@@ -30,6 +30,7 @@ Use ``print`` to explore the results of these classes, and take a look at their
 docstrings and methods. The graphing methods require matplotlib.
 
 ![example](https://raw.github.com/kinverarity1/750words-analysis/master/wordcloud.png)
+
 *An example of a word cloud plotted using pytagcloud*
 
 You can also see some example IPython Notebooks:
@@ -39,6 +40,7 @@ You can also see some example IPython Notebooks:
 - [convert to daily markdown files.ipynb](http://nbviewer.ipython.org/github/kinverarity1/750words-analysis/blob/master/convert%20to%20daily%20markdown%20files.ipynb)
 - [how to do stop words list.ipynb](http://nbviewer.ipython.org/github/kinverarity1/750words-analysis/blob/master/how%20to%20do%20stop%20words%20list.ipynb)
 - [Moby](http://nbviewer.ipython.org/github/kinverarity1/750words-analysis/blob/master/Moby.ipynb)  
+
 The stats on the 750words.com website are -- and will probably continue to be --
 far better. I made this framework mainly so I could look at how whatever
 measures I can find change over time, something the 750words.com site doesn't
