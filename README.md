@@ -60,3 +60,6 @@ through a local HTTP server. Just run:
 
     $ python view750.py
     
+![example](https://raw.github.com/kinverarity1/750words-analysis/master/example_entries.png)
+
+![example](https://raw.github.com/kinverarity1/750words-analysis/master/example_metadata_graph.png)
