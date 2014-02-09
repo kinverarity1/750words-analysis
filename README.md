@@ -62,4 +62,8 @@ through a local HTTP server. Just run:
     
 ![example](https://raw.github.com/kinverarity1/750words-analysis/master/example_entries.png)
 
+*Your entries*
+
 ![example](https://raw.github.com/kinverarity1/750words-analysis/master/example_metadata_graph.png)
+
+*Your metadata*
