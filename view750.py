@@ -84,7 +84,7 @@ li ul, li ul {
     margin-left: 24px;
 }
 p, ul, ol {
-    font-size: 0.9em;
+    font-size: 1em;
     line-height: 1.4em;
     max-width: 50em;
 }
