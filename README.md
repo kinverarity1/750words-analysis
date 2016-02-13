@@ -1,5 +1,7 @@
 # 750words-analysis
 
+![](https://img.shields.io/badge/status-beta-yellow.svg)
+
 An assortment of Python code to look at what you've written on 750words.com.
 
 ## Download your writing
